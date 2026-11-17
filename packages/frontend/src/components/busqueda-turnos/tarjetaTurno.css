@@ -1,0 +1,126 @@
+.tarjeta-turno {
+    background-color: var(--color-surface);
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+.info-lateral {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 180px;
+}
+
+.calificacion {
+    font-size: 15px;
+    font-weight: bold;
+    color: #f59e0b;
+}
+
+.calificacion .votos {
+    color: var(--color-text-muted);
+    font-size: 10px;
+    font-weight: normal;
+    margin-left: 2px;
+}
+
+.seccion-inferior-turnos {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.titulo-turnos {
+    margin: 0;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-weight: 500;
+}
+
+.seccion-turnos {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.grid-turnos {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.boton-turno {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: var(--color-success-light);
+    border: 1px solid transparent;
+    padding: 6px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.boton-turno.seleccionado {
+    border-color: var(--color-success-dark);
+    background-color: var(--color-success-light);
+}
+
+.boton-turno:hover {
+    background-color: var(--color-success-light);
+    border-color: var(--color-success-dark);
+    transform: translateY(-1px);
+}
+
+.boton-turno:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.fecha-turno {
+    font-size: 10px;
+    color: var(--color-success-dark);
+    margin-bottom: 2px;
+}
+
+.hora-turno {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-success-dark);
+}
+
+.acciones {
+    display: flex;
+    flex-direction: column;
+    align-items: row-reverse;
+}
+
+.boton-reservar:disabled {
+    background-color: var(--color-secondary);
+    border: none;
+    padding: 8px 8px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.boton-reservar:not(:disabled) {
+    background-color: var(--color-success-dark);
+    color: var(--color-surface);
+    border: none;
+    padding: 8px 8px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.boton-reservar:not(:disabled):hover {
+    background-color: var(--color-success);
+    transform: translateY(-1px);
+}

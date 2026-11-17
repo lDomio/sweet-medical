@@ -1,0 +1,114 @@
+
+/* =========================================
+   2. Navegación Principal
+========================================= */
+.navbar-menu {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+}
+
+.nav-list {
+  display: flex;
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  gap: 2rem;
+}
+
+.nav-link {
+  text-decoration: none;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-base);
+  font-size: var(--font-size-base);
+  transition: color 0.2s ease;
+  padding: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Opcional: Un pequeño ajuste para que el contenedor del ícono no rompa el diseño */
+.nav-icon {
+  display: flex;
+  align-items: center;
+}
+
+/* Efecto al pasar el mouse */
+.nav-link:hover {
+  color: var(--color-info);
+}
+
+/* Estado activo (la página donde estoy parado) */
+.nav-link.active {
+  color: var(--color-info);
+  border-bottom: 2px solid var(--color-info);
+}
+
+/* =========================================
+   3. Sección de Usuario y Acciones
+========================================= */
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-divider);
+}
+
+.user-name {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-base);
+  color: var(--color-text);
+}
+
+/* Botón de Cerrar Sesión */
+.btn-logout {
+  background-color: transparent;
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-logout:hover {
+  background-color: var(--color-error);
+  color: var(--color-surface);
+}
+
+/* =========================================
+   Diseño Responsivo Básico (Mobile)
+========================================= */
+@media (max-width: 768px) {
+  .navbar-menu {
+    flex: 0 1 auto;
+  }
+  
+  .nav-list {
+    gap: 0.75rem;
+  }
+
+  .nav-link {
+    font-size: 0.85rem;
+  }
+  
+  .user-name {
+    display: none; 
+  }
+}

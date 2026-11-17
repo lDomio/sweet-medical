@@ -1,0 +1,281 @@
+.reprogramar-modal {
+    width: 100%;
+    max-width: 720px;
+
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 24px;
+
+    padding: 28px;
+
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+
+    animation: modalPopIn 0.22s ease-out;
+}
+
+.reprogramar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+
+    margin-bottom: 22px;
+}
+
+.reprogramar-header h2 {
+    margin: 0 0 6px;
+
+    color: var(--color-text);
+
+    font-size: 30px;
+    font-weight: 800;
+}
+
+.reprogramar-header p {
+    margin: 0;
+
+    color: var(--color-text-muted);
+
+    font-size: 15px;
+}
+
+.modal-close-btn {
+    width: 36px;
+    height: 36px;
+
+    border: none;
+    border-radius: 999px;
+
+    background: var(--color-bg);
+    color: var(--color-text);
+
+    font-size: 24px;
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-close-btn:hover {
+    background: var(--color-divider);
+}
+
+.turno-actual-box {
+    display: flex;
+    gap: 16px;
+
+    background: var(--color-bg);
+    border: 1px solid var(--color-divider);
+    border-radius: 20px;
+
+    padding: 18px;
+
+    margin-bottom: 24px;
+}
+
+.reprogramar-avatar {
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+}
+
+.turno-actual-box h3 {
+    margin: 0;
+
+    color: var(--color-text);
+
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.turno-actual-box p {
+    margin: 4px 0 12px;
+
+    color: var(--color-primary);
+
+    font-weight: 700;
+}
+
+.reprogramar-detalles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.reprogramar-detalles span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 999px;
+
+    padding: 6px 10px;
+
+    color: var(--color-text-muted);
+
+    font-size: 13px;
+}
+
+.reprogramar-modal h4 {
+    margin: 0 0 14px;
+
+    color: var(--color-text);
+
+    font-size: 17px;
+    font-weight: 800;
+}
+
+.nuevo-horario-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+
+    margin-bottom: 20px;
+}
+
+.campo-horario {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    flex: 1 1 200px;
+}
+
+.campo-horario span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    color: #526173;
+
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.campo-horario input {
+    border: 1px solid #dbe7e5;
+    border-radius: 14px;
+
+    background: #f8fafc;
+    color: #0f172a;
+
+    padding: 11px 14px;
+
+    font-size: 15px;
+    font-weight: 600;
+
+    transition: all 0.18s ease;
+}
+
+.campo-horario input:hover {
+    border-color: #b7d9d5;
+}
+
+.campo-horario input:focus {
+    outline: none;
+
+    border-color: #087f73;
+    background: white;
+
+    box-shadow: 0 0 0 3px rgba(8, 127, 115, 0.12);
+}
+
+.reprogramar-error {
+    margin: -6px 0 20px;
+
+    color: #dc2626;
+
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.btn-confirmar-reprogramacion {
+    border: none;
+    border-radius: 999px;
+
+    background: var(--color-primary);
+    color: var(--color-surface);
+
+    padding: 11px 18px;
+
+    font-weight: 800;
+    cursor: pointer;
+
+    transition: all 0.2s ease;
+}
+
+.btn-confirmar-reprogramacion:hover {
+    background: var(--color-primary-dark);
+}
+
+.btn-confirmar-reprogramacion:disabled {
+    background: var(--color-divider);
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+    .reprogramar-modal {
+        max-width: 100%;
+        padding: 22px;
+    }
+
+    .turno-actual-box {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 460px) {
+    .nuevo-horario-form {
+        flex-direction: column;
+    }
+
+    .modal-actions {
+        flex-direction: column-reverse;
+    }
+
+    .btn-no-cancelar,
+    .btn-confirmar-reprogramacion {
+        width: 100%;
+    }
+}
+
+.slots-loading {
+    min-height: 210px;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    gap: 14px;
+
+    color: var(--color-text-muted);
+}
+
+.medical-loader {
+    width: 54px;
+    height: 54px;
+
+    border-radius: 50%;
+
+    border: 2px solid var(--color-divider);
+    border-top-color: var(--color-primary);
+
+    animation: medicalSpin 0.8s linear infinite;
+}
+
+.slots-loading p {
+    margin: 0;
+
+    font-size: 15px;
+    font-weight: 700;
+}
+
+@keyframes medicalSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}

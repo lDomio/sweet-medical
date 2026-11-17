@@ -6,22 +6,26 @@
 ![JWT](https://img.shields.io/badge/JWT-000000?style=flat-square&logo=jsonwebtokens&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
 
+[English](README.md) | [Español](README.es.md)
+
 > Group project for **Desarrollo de Software**, UTN FRBA, 2026.
-> The repository is private. This case study documents the product, architecture and my contribution.
+> Built with **5 colleagues**.
+
+![Sweet Medical](packages/frontend/public/logo512.png)
 
 ## Overview
 
-Sweet Medical is a health insurance and appointment platform. Patients can search for appointments, compare coverage, book and manage their visits; doctors can manage their availability and profile.
+Sweet Medical is a health insurance and appointment platform. Patients can search for appointments, compare coverage, book and manage visits; doctors can manage availability, profiles and appointments.
 
 ## Features
 
 - Patient and doctor roles.
-- Appointment search with specialty, date and location filters.
+- Appointment search by specialty, date and location.
 - Coverage levels: total, partial and not covered.
-- Appointment booking and cancellation.
+- Booking, cancellation and appointment history.
 - Doctor profiles, ratings and reviews.
 - Notifications.
-- Responsive layouts for mobile and desktop.
+- Responsive UI for mobile and desktop.
 - Admin and deployment configuration.
 
 ## Architecture
@@ -37,14 +41,14 @@ flowchart LR
     API --> RENDER[Render]
 ```
 
-The project is a monorepo managed with npm workspaces:
+Monorepo with npm workspaces:
 
 - `packages/frontend` — React application.
 - `packages/backend` — Express API with MongoDB, JWT, Zod, Swagger and schedulers.
 
 ## My role
 
-I worked across the frontend and the deployment:
+I worked across the frontend and deployment:
 
 - Responsive home and appointment-search views.
 - Role-based rendering for patients and doctors.
@@ -56,10 +60,39 @@ I worked across the frontend and the deployment:
 
 ## Stack
 
-`React` · `Express` · `MongoDB` · `Mongoose` · `JWT` · `Zod` · `Swagger` · `Docker` · `Render` · `Netlify`
+`React` · `Express` · `MongoDB` · `Mongoose` · `JWT` · `Zod` · `Swagger` · `Docker` · `Render` · `Netlify` · `Jest` · `Cypress`
 
-## Links
+## Running locally
 
-- [LinkedIn](https://www.linkedin.com/in/luca-domio-dev)
-- [Portfolio](https://github.com/lDomio)
-- Code available on request.
+```bash
+npm install
+cp packages/backend/.env.example packages/backend/.env
+npm run start:dev
+```
+
+Set the required environment variables in `packages/backend/.env`:
+
+| Variable | Purpose |
+|---|---|
+| `MONGODB_URI` | MongoDB connection string |
+| `MONGODB_DB_NAME` | Database name |
+| `JWT_SECRET` | JWT signing secret |
+| `JWT_EXPIRATION` | Token lifetime |
+| `SERVER_PORT` | API port |
+| `ALLOWED_ORIGINS` | CORS origins |
+
+## Structure
+
+```text
+├── packages/
+│   ├── backend/     # Express API, domain, repositories, routes
+│   └── frontend/    # React app, features, components, API clients
+├── package.json
+└── packages/docker-compose.yml
+```
+
+## Notes
+
+- Code published for portfolio purposes.
+- No credentials are committed; use `.env.example`.
+- Academic team project.

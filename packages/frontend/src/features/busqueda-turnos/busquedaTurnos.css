@@ -1,0 +1,71 @@
+body {
+  background-color: var(--color-bg);
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Contenedor que alinea el Sidebar (MUI) a la izquierda y el contenido a la derecha */
+.container-busqueda {
+  display: flex;
+  gap: 24px;
+  max-width: 1300px;
+  margin: 30px auto;
+  padding: 0 20px;
+  align-items: start;
+}
+
+/* Columna de la derecha donde van las tarjetas */
+.contenido-resultados {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Cabecera de resultados (Cantidad de turnos y "Ordenar por") */
+.header-resultados {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-resultados h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.ordenar-por {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.ordenar-por select {
+  margin-left: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-divider);
+  border-radius: 8px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+}
+
+/* Responsivo: a partir de 768px se apila verticalmente */
+@media (max-width: 768px) {
+  .container-busqueda {
+    flex-direction: column;
+  }
+
+  .container-busqueda aside {
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  .header-resultados {
+    flex-direction: column;
+  }
+}

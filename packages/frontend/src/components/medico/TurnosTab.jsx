@@ -1,0 +1,722 @@
+import React, { useState } from 'react';
+import { Calendar, Clock, MapPin, User, Check, AlertTriangle, FileText, DollarSign, History } from 'lucide-react';
+import Modal from '../../features/perfil-medico/modals/Modal';
+import { Pagination, Button, useTheme } from '@mui/material';
+
+export default function TurnosTab({
+  medico,
+  turnos = [],
+  subTab,
+  setSubTab,
+  loading,
+  isFetching,
+  page = 1,
+  totalPages = 1,
+  totalItems = 0,
+  onPageChange,
+  counts,
+  onActualizarEstado,
+  onProponerCambio,
+  onResponderCambioFecha,
+  onObtenerHistorialPaciente
+}) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+  const [cancelingId, setCancelingId] = useState(null);
+  const [motivoCancelacion, setMotivoCancelacion] = useState('');
+  const [reprogrammingId, setReprogrammingId] = useState(null);
+  const [nuevaFechaHoraPropuesta, setNuevaFechaHoraPropuesta] = useState('');
+  
+  // Historial del paciente
+  const [pacienteHistorial, setPacienteHistorial] = useState(null); // objeto paciente
+
+  // Historial de cambios de estado del turno
+  const [turnoHistorial, setTurnoHistorial] = useState(null); // objeto turno
+
+  // Alerta personalizada estética
+  const [customAlert, setCustomAlert] = useState({ isOpen: false, title: '', message: '' });
+
+  // Obtener texto seguro de obra social
+  const obtenerObraSocialText = (paciente) => {
+    if (!paciente) return 'No especificado';
+    if (typeof paciente.obraSocial === 'object' && paciente.obraSocial !== null) {
+      return paciente.obraSocial.nombre || paciente.obraSocial.denominacion || 'Obra Social';
+    }
+    return paciente.obraSocial || 'Particular';
+  };
+
+  // Obtener texto seguro de plan
+  const obtenerPlanText = (paciente) => {
+    if (!paciente) return '';
+    
+    // Si es un ID de plan (string) y tenemos la obra social con sus planes
+    if (paciente.plan && paciente.obraSocial && Array.isArray(paciente.obraSocial.planes)) {
+      const planEncontrado = paciente.obraSocial.planes.find(
+        p => (p._id || p.id)?.toString() === paciente.plan?.toString()
+      );
+      if (planEncontrado) {
+        return planEncontrado.nombre || '';
+      }
+    }
+    
+    return '';
+  };
+
+  // Resolver nombre de actor de cambios de estado
+  const obtenerNombreActor = (usuarioId, turno) => {
+    if (!usuarioId) return 'Sistema';
+    
+    if (usuarioId === 'medico' || (turno.medico && usuarioId === (turno.medico.id || turno.medico._id)?.toString())) {
+      return 'Médico';
+    }
+    if (usuarioId === 'paciente' || (turno.paciente && usuarioId === (turno.paciente.id || turno.paciente._id)?.toString())) {
+      return 'Paciente';
+    }
+    return 'Sistema';
+  };
+
+  const formatearFecha = (fechaStr) => {
+    const fecha = new Date(fechaStr);
+    return fecha.toLocaleDateString('es-AR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
+  const formatearHora = (fechaStr) => {
+    const fecha = new Date(fechaStr);
+    return fecha.toLocaleTimeString('es-AR', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }) + ' hs';
+  };
+
+  const obtenerFechaMinimaLocal = () => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  // Validar si un turno es cancelable (más de 1 hora de anticipación)
+  const puedesCancelar = (fechaHoraStr) => {
+    const ahora = new Date();
+    const fechaTurno = new Date(fechaHoraStr);
+    const diffMs = fechaTurno - ahora;
+    const diffHoras = diffMs / (1000 * 60 * 60);
+    return diffHoras >= 1;
+  };
+
+  // Validar cancelación
+  const handleCancelarClick = (turno) => {
+    setMotivoCancelacion('');
+    setReprogrammingId(null);
+    
+    if (!puedesCancelar(turno.fechaHora)) {
+      setCustomAlert({
+        isOpen: true,
+        title: 'Acción No Permitida',
+        message: 'No se puede cancelar el turno con menos de 1 hora de anticipación.'
+      });
+      return;
+    }
+
+    setCancelingId(turno.id);
+  };
+
+  const handleConfirmarCancelacion = async (turnoId) => {
+    if (!motivoCancelacion.trim()) {
+      setCustomAlert({
+        isOpen: true,
+        title: 'Motivo Obligatorio',
+        message: 'Por favor, indica un motivo para cancelar el turno.'
+      });
+      return;
+    }
+    const ok = await onActualizarEstado(turnoId, 'CANCELADO', motivoCancelacion);
+    if (!ok) {
+      setCustomAlert({
+        isOpen: true,
+        title: 'Error',
+        message: 'No se pudo cancelar el turno. Inténtalo de nuevo.'
+      });
+      return;
+    }
+    setCancelingId(null);
+    setMotivoCancelacion('');
+  };
+
+  const handleReprogramarClick = (turno) => {
+    setCancelingId(null);
+    setNuevaFechaHoraPropuesta('');
+    setReprogrammingId(turno.id);
+  };
+
+  const handleConfirmarReprogramacion = async (turnoId) => {
+    const ok = await onProponerCambio(turnoId, nuevaFechaHoraPropuesta);
+    if (!ok) {
+      setCustomAlert({
+        isOpen: true,
+        title: 'Error',
+        message: 'No se pudo enviar la propuesta de reprogramación.'
+      });
+      return;
+    }
+    setReprogrammingId(null);
+    setNuevaFechaHoraPropuesta('');
+  };
+
+  // Obtener historial completo de un paciente
+  const verHistorialPaciente = async (paciente) => {
+    try {
+      const pacienteId = paciente.id || paciente._id;
+      const historial = await onObtenerHistorialPaciente(pacienteId);
+      setPacienteHistorial({
+        paciente,
+        historial: [...historial].sort((a, b) => new Date(b.fechaHora) - new Date(a.fechaHora))
+      });
+    } catch (e) {
+      setCustomAlert({
+        isOpen: true,
+        title: 'Error al obtener historial',
+        message: 'Ocurrió un problema al solicitar el historial del paciente.'
+      });
+    }
+  };
+
+  return (
+    <div className="fade-in">
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h4 className="font-weight-bold text-default m-0">Gestión de Turnos</h4>
+      </div>
+
+      <div className="d-flex gap-2 mb-4 flex-wrap border-bottom pb-3">
+        {[
+          { key: 'RESERVADOS', label: 'Reservados', count: counts.RESERVADOS || 0 },
+          { key: 'CONFIRMADOS', label: 'Confirmados', count: counts.CONFIRMADOS || 0 },
+          { key: 'PROPUESTAS', label: 'Propuestas de Cambio', count: counts.PROPUESTAS || 0 },
+          { key: 'REALIZADOS', label: 'Realizados', count: counts.REALIZADOS || 0 },
+          { key: 'CANCELADOS', label: 'Cancelados', count: counts.CANCELADOS || 0 }
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => {
+              setSubTab(tab.key);
+              onPageChange(1); // Reset page to 1 when changing tabs
+              setCancelingId(null);
+              setReprogrammingId(null);
+            }}
+            className={`btn btn-sm font-weight-bold px-3 py-2 position-relative d-flex align-items-center gap-2`}
+            style={{
+              borderRadius: '8px',
+              backgroundColor: subTab === tab.key 
+                ? (isDark ? 'var(--color-primary-dark)' : 'var(--color-info-light)') 
+                : (isDark ? 'var(--color-bg)' : 'var(--color-neutral-light)'),
+              color: subTab === tab.key 
+                ? (isDark ? '#ffffff' : 'var(--color-info-dark)') 
+                : 'var(--color-text-muted)',
+              border: isDark ? '1px solid var(--color-divider)' : 'none',
+              transition: 'all 0.2s'
+            }}
+            aria-label={`Filtro: ${tab.label} (${tab.count})`}
+          >
+            {tab.label}
+            <span className="badge bg-neutral text-white" style={{ fontSize: '10px' }}>{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Contenedor principal con altura mínima estable para evitar Cumulative Layout Shift */}
+      <div style={{ minHeight: '350px', position: 'relative' }}>
+        {loading && (
+          <div className="d-flex flex-column justify-content-center align-items-center" style={{ 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            backgroundColor: 'rgba(255, 255, 255, 0.75)', 
+            zIndex: 10,
+            borderRadius: '12px'
+          }}>
+            <div className="spinner-border text-primary" role="status" style={{ width: '2rem', height: '2rem' }}>
+              <span className="visually-hidden">Cargando turnos...</span>
+            </div>
+            <p className="text-muted mt-2 small font-weight-bold">Cargando listado de turnos...</p>
+          </div>
+        )}
+
+        {/* Listado de turnos */}
+        <div className="row g-3" style={{ 
+          opacity: (loading || isFetching) ? 0.4 : 1, 
+          transition: 'opacity 0.2s ease-in-out', 
+          pointerEvents: (loading || isFetching) ? 'none' : 'auto' 
+        }}>
+          {turnos.length > 0 ? (
+            turnos.map(turno => (
+              <div key={turno.id} className="col-12 col-md-6">
+                <div className="servicio-card h-100 d-flex flex-column justify-content-between p-3" style={{ border: '1px solid var(--color-divider)', borderRadius: '12px', backgroundColor: 'var(--color-surface)' }}>
+                  <div>
+                    {/* Cabecera del Turno */}
+                    <div className="d-flex justify-content-between align-items-start border-bottom pb-2 mb-3">
+                      <div>
+                        <span className="font-weight-bold text-default d-block" style={{ fontSize: '15px' }}>
+                          {turno.paciente ? turno.paciente.nombre : 'Turno Disponible'}
+                        </span>
+                        {turno.paciente ? (
+                          <span className="text-muted d-block" style={{ fontSize: '11px' }}>
+                            DNI: {turno.paciente.dni} | Obra Social: {obtenerObraSocialText(turno.paciente)} {obtenerPlanText(turno.paciente) ? `| Plan: ${obtenerPlanText(turno.paciente)}` : ''}
+                          </span>
+                        ) : (
+                          <span className="text-muted d-block" style={{ fontSize: '11px' }}>
+                            Sin paciente asignado
+                          </span>
+                        )}
+                      </div>
+                      {turno.paciente && (
+                        <Button
+                          onClick={() => verHistorialPaciente(turno.paciente)}
+                          variant="text"
+                          size="small"
+                          startIcon={<FileText size={12} />}
+                          sx={{ textTransform: 'none', fontWeight: 'bold', fontSize: '11px', p: 0, minWidth: 'auto' }}
+                          aria-label={`Ver historial clínico del paciente ${turno.paciente.nombre}`}
+                        >
+                          Historial
+                        </Button>
+                      )}
+                    </div>
+                    
+                    {/* Detalles de la cita */}
+                    <div className="d-flex flex-column gap-2 text-default mb-3" style={{ fontSize: '13px' }}>
+                      <div className="d-flex align-items-center gap-2">
+                        <Calendar size={14} className="text-primary" />
+                      <span className="text-capitalize">{formatearFecha(turno.fechaHora)}</span>
+                  </div>
+                      <div className="d-flex align-items-center gap-2">
+                        <Clock size={14} className="text-primary" />
+                        <span>{formatearHora(turno.fechaHora)}</span>
+                      </div>
+                      <div className="d-flex align-items-center gap-2">
+                        <MapPin size={14} className="text-primary" />
+                        <span>{turno.sede.nombre || turno.sede}</span>
+                      </div>
+                      <div className="d-flex align-items-center gap-2">
+                        <DollarSign size={14} className="text-primary" />
+                        <span>Costo: {turno.costo !== undefined && turno.costo !== null ? `$${turno.costo}` : 'No especificado'}</span>
+                      </div>
+                      <div className="mt-1 d-flex flex-column gap-1">
+                        <span 
+                          className="badge border px-2 py-1 font-weight-bold me-auto text-default" 
+                          style={{ 
+                            fontSize: '11px', 
+                            backgroundColor: isDark ? 'var(--color-bg)' : 'var(--color-neutral-light)' 
+                          }}
+                        >
+                          {turno.servicio.nombre}
+                        </span>
+
+                    {['RESERVADO', 'CONFIRMADO', 'PENDIENTECAMBIO'].includes(turno.estado) && (
+                          <div 
+                            className={`d-flex align-items-center gap-1 mt-2 p-2 rounded-3 ${puedesCancelar(turno.fechaHora) ? 'text-muted' : (isDark ? '' : 'text-danger')} font-weight-bold`} 
+                            style={{ 
+                              fontSize: '11px', 
+                              backgroundColor: puedesCancelar(turno.fechaHora) ? 'var(--color-bg)' : (isDark ? 'rgba(211, 47, 47, 0.15)' : 'var(--color-error-light)'), 
+                              border: puedesCancelar(turno.fechaHora) ? '1px dashed var(--color-divider)' : `1px solid ${isDark ? 'rgba(211, 47, 47, 0.4)' : 'var(--color-error-light)'}`,
+                              color: !puedesCancelar(turno.fechaHora) && isDark ? '#ff8a80' : undefined
+                            }}
+                          >
+                        <AlertTriangle size={12} className={puedesCancelar(turno.fechaHora) ? 'text-warning' : (isDark ? '' : 'text-danger')} style={{ color: !puedesCancelar(turno.fechaHora) && isDark ? '#ff8a80' : undefined }} />
+                        <span>
+                          {puedesCancelar(turno.fechaHora) 
+                            ? 'Los turnos solo se pueden cancelar con más de 1 hora de anticipación.' 
+                            : 'Tiempo límite de cancelación superado (menos de 1 hora restante).'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  </div>
+
+                    {/* Estado PENDIENTECAMBIO Detalles */}
+                    {turno.estado === 'PENDIENTECAMBIO' && turno.fechaHoraPropuesta && (
+                      <div 
+                        className="p-2.5 rounded-3 mb-3 d-flex flex-column gap-1" 
+                        style={{ 
+                          fontSize: '12px',
+                          backgroundColor: isDark ? 'rgba(237, 108, 2, 0.15)' : '#fff3cd',
+                          border: `1px solid ${isDark ? 'rgba(237, 108, 2, 0.3)' : '#ffe69c'}`,
+                          color: isDark ? '#ffb74d' : '#664d03'
+                        }}
+                      >
+                        <span className="font-weight-bold d-flex align-items-center gap-1" style={{ color: isDark ? '#ffb74d' : '#664d03' }}>
+                          <AlertTriangle size={13} /> Propuesta de Cambio
+                        </span>
+                        <span>Fecha Propuesta: <strong>{formatearFecha(turno.fechaHoraPropuesta)} - {formatearHora(turno.fechaHoraPropuesta)}</strong></span>
+                        <span style={{ opacity: 0.8, fontSize: '11px' }}>
+                          Cambio solicitado por {turno.historialEstado?.slice().reverse().find(h => h.estado === 'PENDIENTECAMBIO')?.usuario === medico?.id ? 'ti (Médico)' : 'el paciente'}.
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Estado CANCELADO Detalles */}
+                    {turno.estado === 'CANCELADO' && (
+                      <div 
+                        className="p-2.5 rounded-3 mb-3" 
+                        style={{ 
+                          fontSize: '12px', 
+                          backgroundColor: isDark ? 'rgba(211, 47, 47, 0.15)' : 'var(--color-error-light)', 
+                          border: `1px solid ${isDark ? 'rgba(211, 47, 47, 0.3)' : 'var(--color-error-light)'}`, 
+                          color: isDark ? '#ff8a80' : 'var(--color-error-dark)' 
+                        }}
+                      >
+                        <strong>Motivo de Cancelación:</strong> {turno.historialEstado?.find(h => h.estado === 'CANCELADO')?.motivo || 'No indicado.'}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Acciones */}
+                  <div className="border-top pt-3 mt-auto">
+                    {cancelingId === turno.id ? (
+                      <div className="p-2 bg-surface rounded-3 border">
+                        <label className="form-label small font-weight-bold text-default mb-1">Indica el Motivo de Cancelación</label>
+                        <textarea
+                          className="form-control form-control-sm mb-2"
+                          rows="2"
+                          value={motivoCancelacion}
+                          onChange={e => setMotivoCancelacion(e.target.value)}
+                          placeholder="Ej: Ausencia justificada del profesional..."
+                          style={{ fontSize: '12px' }}
+                        />
+                        <div className="d-flex justify-content-end gap-2">
+                          <Button variant="outlined" color="inherit" size="small" sx={{ fontSize: '11px', minWidth: 'auto', px: 1, py: 0.5 }} onClick={() => setCancelingId(null)} aria-label="Cancelar operación de cancelación">Volver</Button>
+                          <Button variant="contained" color="success" size="small" sx={{ fontSize: '11px', fontWeight: 'bold', minWidth: 'auto', px: 1, py: 0.5, color: 'white' }} onClick={() => handleConfirmarCancelacion(turno.id)} aria-label={`Confirmar cancelación del turno de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}>Confirmar</Button>
+                        </div>
+                      </div>
+                    ) : reprogrammingId === turno.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          handleConfirmarReprogramacion(turno.id);
+                        }}
+                        className="p-2 bg-surface rounded-3 border"
+                      >
+                        <label className="form-label small font-weight-bold text-default mb-1">Selecciona Fecha y Hora Propuesta</label>
+                        <input
+                          type="datetime-local"
+                          className="form-control form-control-sm mb-2"
+                          value={nuevaFechaHoraPropuesta}
+                          onChange={e => setNuevaFechaHoraPropuesta(e.target.value)}
+                          min={obtenerFechaMinimaLocal()}
+                          required
+                          style={{ fontSize: '12px' }}
+                        />
+                        <div className="d-flex justify-content-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outlined"
+                            color="inherit"
+                            size="small"
+                            sx={{ fontSize: '11px', minWidth: 'auto', px: 1, py: 0.5 }}
+                            onClick={() => setReprogrammingId(null)}
+                            aria-label="Cancelar operación de reprogramación"
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="submit"
+                            variant="contained"
+                            color="primary"
+                            size="small"
+                            sx={{ fontSize: '11px', fontWeight: 'bold', minWidth: 'auto', px: 1, py: 0.5 }}
+                            aria-label={`Enviar propuesta de reprogramación a ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                          >
+                            Enviar Propuesta
+                          </Button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="d-flex flex-wrap gap-2 align-items-center w-100">
+                        {turno.estado === 'RESERVADO' && (
+                          <>
+                            <Button
+                              onClick={() => onActualizarEstado(turno.id, 'CONFIRMADO', "Turno confirmado")}
+                              variant="outlined"
+                              color="success"
+                              size="small"
+                              startIcon={<Check size={12} />}
+                              sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px' }}
+                              aria-label={`Confirmar turno de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                            >
+                              Confirmar
+                            </Button>
+                            <Button
+                              onClick={() => handleReprogramarClick(turno)}
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px' }}
+                              aria-label={`Proponer cambio de fecha y hora a ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                            >
+                              Proponer Cambio
+                            </Button>
+                            {puedesCancelar(turno.fechaHora) && (
+                              <Button
+                                onClick={() => handleCancelarClick(turno)}
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px' }}
+                                aria-label={`Cancelar turno de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                              >
+                                Cancelar
+                              </Button>
+                            )}
+                          </>
+                        )}
+
+                        {turno.estado === 'CONFIRMADO' && (
+                          <>
+                            <Button
+                              onClick={() => onActualizarEstado(turno.id, 'REALIZADO', "Turno realizado")}
+                              variant="outlined"
+                              color="success"
+                              size="small"
+                              startIcon={<Check size={12} />}
+                              sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px'}}
+                              aria-label={`Marcar turno de ${turno.paciente ? turno.paciente.nombre : 'paciente'} como realizado`}
+                            >
+                              Marcar Realizado
+                            </Button>
+                            <Button
+                              onClick={() => handleReprogramarClick(turno)}
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px' }}
+                              aria-label={`Proponer cambio de fecha y hora a ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                            >
+                              Proponer Cambio
+                            </Button>
+                            {puedesCancelar(turno.fechaHora) && (
+                              <Button
+                                onClick={() => handleCancelarClick(turno)}
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px' }}
+                                aria-label={`Cancelar turno de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                              >
+                                Cancelar
+                              </Button>
+                            )}
+                          </>
+                        )}
+
+                        {turno.estado === 'PENDIENTECAMBIO' && (
+                          <>
+                            {turno.historialEstado?.slice().reverse().find(h => h.estado === 'PENDIENTECAMBIO')?.usuario !== medico?.id ? (
+                              <Button
+                                onClick={() => onResponderCambioFecha(turno.id, true)}
+                                variant="outlined"
+                                color="success"
+                                size="small"
+                                sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px' }}
+                                aria-label={`Aceptar propuesta de cambio de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                              >
+                                Aceptar Cambio
+                              </Button>
+                            ) : (
+                              <span className="text-muted small italic me-auto">Esperando confirmación del paciente...</span>
+                            )}
+                            {puedesCancelar(turno.fechaHora) && (
+                              <Button
+                                onClick={() => handleCancelarClick(turno)}
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px', ml: 'auto' }}
+                                aria-label={`Cancelar turno pendiente de cambio de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                              >
+                                Cancelar Turno
+                              </Button>
+                            )}
+                          </>
+                        )}
+
+                        {(turno.estado === 'REALIZADO' || turno.estado === 'CANCELADO') && (
+                          <span className="text-muted small italic me-auto">Finalizado</span>
+                        )}
+
+
+                        <Button
+                          onClick={() => setTurnoHistorial(turno)}
+                          variant="outlined"
+                          color="inherit"
+                          size="small"
+                          startIcon={<History size={12} />}
+                          sx={{ fontSize: '11px', fontWeight: 'bold', borderRadius: '6px', ml: 'auto' }}
+                          title="Historial de Estados del Turno"
+                          aria-label={`Ver historial de estados del turno de ${turno.paciente ? turno.paciente.nombre : 'paciente'}`}
+                        >
+                          Historial
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+              </div>
+              </div>
+
+            ))
+          ) : (
+            <div className="col-12">
+              <div className="text-center py-5 border rounded-3 bg-surface">
+                <p className="text-muted italic m-0">No se encontraron turnos en este estado.</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* paginacion */}
+        {totalPages > 1 && (
+          <div className="d-flex justify-content-between align-items-center mt-4 pt-3 border-top" style={{ 
+            opacity: loading ? 0.5 : 1, 
+            pointerEvents: loading ? 'none' : 'auto' 
+          }}>
+            <span className="text-muted" style={{ fontSize: '12.5px' }}>
+              Mostrando página <strong>{page}</strong> de <strong>{totalPages}</strong> ({totalItems} turnos en total)
+            </span>
+            <Pagination 
+              count={totalPages} 
+              page={page} 
+              onChange={(e, value) => onPageChange(value)} 
+              color="primary" 
+              disabled={isFetching || loading}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Modal de Historial del Paciente */}
+      <Modal
+        isOpen={!!pacienteHistorial}
+        onClose={() => setPacienteHistorial(null)}
+        title={pacienteHistorial ? `Historial Clínico de Turnos: ${pacienteHistorial.paciente.nombre}` : ''}
+      >
+        {pacienteHistorial && (
+          <div className="p-3" style={{ maxHeight: '450px', overflowY: 'auto' }}>
+            <div className="mb-3 p-2 bg-surface border rounded" style={{ fontSize: '12px' }}>
+              <span className="d-block text-default"><strong>Paciente:</strong> {pacienteHistorial.paciente.nombre}</span>
+              <span className="d-block text-default"><strong>DNI:</strong> {pacienteHistorial.paciente.dni}</span>
+              <span className="d-block text-default"><strong>Obra Social / Plan:</strong> {obtenerObraSocialText(pacienteHistorial.paciente)} {obtenerPlanText(pacienteHistorial.paciente) ? `/ ${obtenerPlanText(pacienteHistorial.paciente)}` : ''}</span>
+            </div>
+            
+            <h6 className="font-weight-bold mb-2 text-primary" style={{ fontSize: '13px' }}>Turnos del Paciente</h6>
+            <div className="d-flex flex-column gap-2">
+              {pacienteHistorial.historial.map((histTurno, idx) => {
+                const badgeColor = histTurno.estado === 'REALIZADO' ? 'bg-success'
+                                 : histTurno.estado === 'CANCELADO' ? 'bg-danger'
+                                 : histTurno.estado === 'CONFIRMADO' ? 'bg-primary'
+                                 : histTurno.estado === 'PENDIENTECAMBIO' ? 'bg-warning text-default'
+                                 : 'bg-neutral';
+                return (
+                  <div key={idx} className="p-2 border rounded d-flex justify-content-between align-items-center" style={{ fontSize: '12px' }}>
+                    <div>
+                      <span className="d-block text-default font-weight-bold">{formatearFecha(histTurno.fechaHora)} - {formatearHora(histTurno.fechaHora)}</span>
+                      <span className="text-muted text-xs">{histTurno.servicio.nombre} ({histTurno.sede.nombre || histTurno.sede})</span>
+                    </div>
+                    <span className={`badge ${badgeColor} text-white px-2 py-1`}>{histTurno.estado}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+       {/* Modal de Historial de Estados del Turno */}
+      <Modal
+        isOpen={!!turnoHistorial}
+        onClose={() => setTurnoHistorial(null)}
+        title={turnoHistorial ? `Historial de Estados - Turno #${turnoHistorial.id.replace('turno_', '')}` : ''}
+      >
+        {turnoHistorial && (
+          <div className="p-3">
+            <div className="mb-3 p-2.5 bg-surface border rounded-3" style={{ fontSize: '12px' }}>
+              <span className="d-block text-default"><strong>Paciente:</strong> {turnoHistorial.paciente ? turnoHistorial.paciente.nombre : 'Sin paciente asignado'}</span>
+              <span className="d-block text-default"><strong>Servicio:</strong> {turnoHistorial.servicio.nombre}</span>
+              <span className="d-block text-default"><strong>Fecha/Hora original:</strong> {formatearFecha(turnoHistorial.fechaHora)} - {formatearHora(turnoHistorial.fechaHora)}</span>
+            </div>
+
+            <h6 className="font-weight-bold mb-3 text-primary" style={{ fontSize: '13px' }}>Estados del turno</h6>
+            <div className="position-relative ps-4 border-start py-1" style={{ borderColor: 'var(--color-divider)' }}>
+              {turnoHistorial.historialEstado && turnoHistorial.historialEstado.length > 0 ? (
+                turnoHistorial.historialEstado.map((hist, idx) => {
+                  const badgeColor = hist.estado === 'REALIZADO' ? 'bg-success'
+                                   : hist.estado === 'CANCELADO' ? 'bg-danger'
+                                   : hist.estado === 'CONFIRMADO' ? 'bg-primary'
+                                   : hist.estado === 'PENDIENTECAMBIO' ? 'bg-warning text-default'
+                                   : 'bg-neutral';
+                  return (
+                    <div key={idx} className="mb-4 position-relative">
+                      {/* Indicador del punto en la línea de tiempo */}
+                      <div 
+                        className="position-absolute" 
+                        style={{ 
+                          left: '-31px', 
+                          top: '2px', 
+                          width: '12px', 
+                          height: '12px', 
+                          borderRadius: '50%', 
+                          backgroundColor: hist.estado === 'CANCELADO' ? 'var(--color-error)' : hist.estado === 'REALIZADO' ? 'var(--color-success)' : 'var(--color-info)',
+                          border: '2px solid var(--color-surface)',
+                          boxShadow: '0 0 0 2px var(--color-divider)'
+                        }}
+                      />
+                      <div className="d-flex align-items-center gap-2 mb-1">
+                        <span className={`badge ${badgeColor} px-2 py-0.5`} style={{ fontSize: '10px' }}>{hist.estado}</span>
+                        <span className="text-muted small" style={{ fontSize: '11px' }}>
+                          por <strong>{obtenerNombreActor(hist.usuario, turnoHistorial)}</strong>
+                        </span>
+                      </div>
+                      {hist.motivo && (
+                        <p className="text-muted m-0 border-start ps-2 py-0.5 italic" style={{ fontSize: '12px', borderLeftColor: 'var(--color-divider)' }}>
+                          "{hist.motivo}"
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-muted small italic">Sin historial registrado.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal de Alerta Estético Personalizado */}
+      <Modal
+        isOpen={customAlert.isOpen}
+        onClose={() => setCustomAlert({ ...customAlert, isOpen: false })}
+        title={customAlert.title}
+      >
+        <div className="p-4 text-center">
+          <div className="d-inline-flex p-3 bg-surface border rounded-circle mb-3 text-warning">
+            <AlertTriangle size={32} />
+          </div>
+          <h5 className="font-weight-bold text-default mb-2">{customAlert.title}</h5>
+          <p className="text-muted mb-4" style={{ fontSize: '13.5px' }}>{customAlert.message}</p>
+          <button
+            className="btn btn-primary px-4 py-2 font-weight-bold"
+            style={{ borderRadius: '8px', fontSize: '13px' }}
+            onClick={() => setCustomAlert({ ...customAlert, isOpen: false })}
+          >
+            Entendido
+          </button>
+        </div>
+      </Modal>
+
+    </div>
+  );
+}

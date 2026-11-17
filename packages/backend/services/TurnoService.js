@@ -1,0 +1,604 @@
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  UnprocessableEntityError,
+} from "../errors/AppError.js";
+import { filtrosTurnoSchema } from "../schemas/zod/turnoSchema.js";
+import { Turno } from "../domain/turnos/turno.js";
+import { Agenda } from "../domain/agenda.js";
+import { NivelCobertura } from "../domain/coberturas/nivelCoberturaEnum.js";
+import { EstadoTurnoEnum } from "../domain/turnos/estadoTurnoEnum.js";
+import { TurnoRepository } from "../repositories/TurnoRepository.js";
+import { ObraSocialRepository } from "../repositories/ObraSocialRepository.js";
+import { MedicoRepository } from "../repositories/MedicoRepository.js";
+import { PacienteRepository } from "../repositories/PacienteRepository.js";
+import { logger } from "../config/logger.js";
+import { MedicoService } from "../services/MedicoService.js";
+import { UsuarioService } from "../services/UsuarioService.js";
+import { NotificacionService } from "./NotificacionService.js";
+import { SedeRepository } from "../repositories/SedeRepository.js";
+import { ServicioRepository } from "../repositories/ServicioRepository.js";
+
+
+export class TurnoService {
+  constructor({
+    turnoRepository = new TurnoRepository(),
+    pacienteRepository = new PacienteRepository(),
+    obraSocialRepository = new ObraSocialRepository(),
+    medicoRepository = new MedicoRepository(),
+    medicoService = new MedicoService(),
+    agenda = new Agenda(),
+    usuarioService = new UsuarioService(),
+    notificacionService = new NotificacionService(),
+    sedeRepository = new SedeRepository(),
+    servicioRepository = new ServicioRepository(),
+  } = {}) {
+    this.turnoRepository = turnoRepository;
+    this.pacienteRepository = pacienteRepository;
+    this.obraSocialRepository = obraSocialRepository;
+    this.medicoRepository = medicoRepository;
+    this.medicoService = medicoService;
+    this.agenda = agenda;
+    this.usuarioService = usuarioService;
+    this.notificacionService = notificacionService;
+    this.sedeRepository = sedeRepository;
+    this.servicioRepository = servicioRepository;
+  }
+
+  toDto(turno) {
+    return {
+      id: turno.id || turno._id,
+      medico: turno.medico,
+      servicio: turno.servicio,
+      paciente: turno.paciente,
+      fechaHora: turno.fechaHora,
+      fechaHoraPropuesta: turno.fechaHoraPropuesta,
+      sede: turno.sede,
+      estado: turno.estado,
+      historialEstado: turno.historialEstado,
+      costo: turno.costo,
+      estadoCobertura: turno.estadoCobertura,
+    };
+  }
+
+  async cambiarEstadoTurno(id, nuevoEstado, quien, motivo) {
+    logger.info(`[TURNO SERVICE]: Intentando cambiar estado del turno ${id} a ${nuevoEstado}`);
+    const turno = await this.turnoRepository.findById(id);
+    if (!turno) {
+      throw new BadRequestError("No se encontro el turno con el id " + id);
+    }
+
+    if (nuevoEstado === turno.estado) {
+      throw new ConflictError("El turno ya tiene el estado " + nuevoEstado);
+    }
+
+    const { quienObj, remitente, destinatario } = await this.#resolverActor(turno, quien);
+
+    try {
+      // Toda la validación de negocio (1 hora de anticipación, transiciones, etc.) vive en la entidad
+      turno.actualizarEstadoTurno({ nuevoEstado, quien: quienObj._id, motivo });
+    } catch (error) {
+      throw new BadRequestError(error.message);
+    }
+
+    // El error de la notificación no debe bloquear el cambio de estado (resiliencia)
+    await this.notificacionService
+      .crearNotificacionSegunEstadoTurno(turno, remitente, destinatario)
+      .catch((err) => logger.warn(`Falla al notificar cambio de estado del turno ${id}`, err));
+
+    const turnoActualizado = await this.turnoRepository.update(id, turno);
+    logger.info(`[TURNO SERVICE]: Estado de turno ${id} actualizado correctamente`);
+    return this.toDto(turnoActualizado);
+  }
+
+  async #resolverActor(turno, quienId) {
+    const esPaciente = turno.paciente && (turno.paciente.toString() === quienId || turno.paciente.id === quienId);
+    const esMedico = turno.medico && (turno.medico.toString() === quienId || turno.medico.id === quienId);
+
+    if (!esPaciente && !esMedico) {
+      throw new BadRequestError("El usuario no está asociado a este turno");
+    }
+
+    const quienObj = esPaciente
+      ? await this.pacienteRepository.findById(quienId)
+      : await this.medicoRepository.findById(quienId);
+
+    if (!quienObj) throw new NotFoundError("Usuario no encontrado");
+
+    return {
+      quienObj,
+      remitente: esPaciente ? turno.paciente : turno.medico,
+      destinatario: esPaciente ? turno.medico : turno.paciente,
+      rol: esPaciente ? "paciente" : "médico"
+    };
+  }
+
+  async create(data) {
+    const { fechaHora, medicoId, sedeId, servicioId, costo } = data;
+    logger.info(`[TURNO SERVICE]: Creando turno para el médico ${medicoId} en fecha ${fechaHora}`);
+
+    if (!medicoId || !sedeId || !fechaHora || !servicioId) {
+      throw new UnprocessableEntityError(
+        "Datos incompletos para crear el turno",
+      );
+    }
+
+    const yaExiste = await this.turnoRepository.existeTurno(
+      medicoId,
+      fechaHora,
+    );
+    if (yaExiste) {
+      throw new ConflictError(
+        "El médico ya tiene un turno creado en esa fecha y horario",
+      );
+    }
+
+    const medico = await this.medicoRepository.findById(medicoId);
+    if (!medico) {
+      throw new NotFoundError("No se encontro el medico con el id " + medicoId);
+    }
+
+    const sede = await this.sedeRepository.findById(sedeId);
+    if (!sede) {
+      throw new NotFoundError("No se encontro la sede con el id " + sedeId);
+    }
+
+    const servicio = await this.servicioRepository.findById(servicioId);
+    if (!servicio) {
+      throw new NotFoundError(
+        "No se encontro el servicio con el id " + servicioId,
+      );
+    }
+
+    const turno = new Turno({ medico, sede, fechaHora, servicio, costo });
+    const turnoGuardado = await this.turnoRepository.save(turno);
+    logger.info("[TURNO SERVICE]: Turno creado con éxito");
+    return this.toDto(turnoGuardado);
+  }
+
+  async asignarTurnos(idsTurnos, pacienteId) {
+    logger.info("[TURNO SERVICE]: Intentando asignar turnos " + " al paciente " + pacienteId);
+
+    const paciente = await this.pacienteRepository.findById(pacienteId);
+    if (!paciente){
+      throw new NotFoundError(
+        "No se encontro el paciente con el id " + pacienteId,
+      );
+    }
+
+    const { obraSocial, plan } = await this.obtenerObraSocialYPlanPorPaciente(pacienteId);
+
+    // 1) validar que los turnos esten disponibles
+    const turnos = await Promise.all(
+      idsTurnos.map(async (id) => {
+        const turno = await this.turnoRepository.findById(id);
+        if (!turno) {
+          throw new NotFoundError("No se encontro el turno con el id " + id);
+        }
+        if (turno.paciente) {
+          throw new ConflictError(`El turno ${id} ya tiene un paciente asignado`);
+        }
+        return turno;
+      })
+    );
+
+    // 2) asignar
+    const turnosFinal = [];
+    for (const turno of turnos) {
+      try {
+        turno.paciente = paciente;
+        const cobertura = this.calcularCostoTurno(obraSocial, plan, turno.costo, turno.servicio);
+        turno.costo = cobertura.costoFinal ?? cobertura;
+        turno.estadoCobertura = cobertura.estadoCobertura ?? null;
+
+    turno.actualizarEstadoTurno({
+      nuevoEstado: EstadoTurnoEnum.RESERVADO,
+      quien: paciente._id,
+      turno,
+      motivo: "Reserva de turno"
+    });
+    this.notificacionService.crearNotificacionSegunEstadoTurno(turno, paciente, turno.medico);
+
+        const turnoActualizado = await this.turnoRepository.update(turno.id ?? turno._id, turno);
+        logger.info(`[TURNO SERVICE]: Turno ${turno.id ?? turno._id} asignado correctamente`);
+        turnosFinal.push(turnoActualizado);
+      } catch (error) {
+        console.error(error.message);
+        throw new BadRequestError(error.message);
+      }
+    }
+    return turnosFinal.map((t) => this.toDto(t));
+  }
+
+  async obtenerTodosPaginados(numeroPagina = 1, limitePorPagina = Number(process.env.ITEMS_PER_PAGE) || 10, filtros = {}) {
+
+    logger.info(`[TURNO SERVICE]: Obteniendo turnos paginados (Pág: ${numeroPagina})`);
+
+    this.validarPaginacion(numeroPagina, limitePorPagina);
+    const filtrosValidados = this.validarFiltros(filtros);
+
+    const filtrosParaBD = { ...filtrosValidados };
+    // Si buscamos turnos disponibles, quitamos pacienteId para que Mongoose no intente buscar un turno disponible con paciente asignado
+    if (filtrosParaBD.estado === EstadoTurnoEnum.DISPONIBLE) {
+      delete filtrosParaBD.pacienteId;
+    }
+    // aseguramos que si no viene la fecha desde, que sea desde hoy para no mostrar pasados,
+    // pero solo cuando se buscan turnos disponibles o búsquedas públicas generales (sin paciente ni médico específicos)
+    if (!filtrosParaBD.fechaHoraInicio && (filtrosParaBD.estado === EstadoTurnoEnum.DISPONIBLE || (!filtrosParaBD.pacienteId && !filtrosParaBD.medicoId))) {
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      filtrosParaBD.fechaHoraInicio = hoy;
+    }
+
+    const { turnos, totalTurnos } = await this.turnoRepository.obtenerPaginados(numeroPagina, limitePorPagina, filtrosParaBD);
+
+    const totalPaginas = totalTurnos === 0 ? 0 : Math.ceil(totalTurnos / limitePorPagina);
+
+    //Si lo solicita un paciente, entonces cargamos los costos finales y la cobertura de cada turno
+    let turnosParaDto = turnos;
+    // Si lo solicita un paciente, cargamos costos finales y cobertura
+    if (filtrosValidados.pacienteId) {
+      const { obraSocial, plan } = await this.obtenerObraSocialYPlanPorPaciente(filtrosValidados.pacienteId);
+      turnosParaDto = turnos.map((t) => {
+        if (t.servicio) {
+          const cobertura = this.calcularCostoTurno(obraSocial, plan, t.costo, t.servicio);
+          t.costo = cobertura.costoFinal;
+          t.estadoCobertura = cobertura.estadoCobertura;
+        }
+        return t;
+      });
+    }
+
+    const turnosFinal = turnosParaDto.map((t) => this.toDto(t)); // <- capturar el resultado
+
+    logger.info(`[TURNO SERVICE]: Retornando ${turnosFinal.length} turnos`);
+    return {
+      turnosFinal,
+      numeroPagina,
+      limitePorPagina,
+      totalPaginas,
+      totalTurnos,
+    };
+  }
+
+  async obtenerTurnosProximosUsuario(idUsuario) {
+    logger.info("[TURNOS SERVICE]: Obteniendo turnos proximos de usuario");
+    const paciente = await this.pacienteRepository.findByIdUsuario(idUsuario);
+    if(!paciente) throw new NotFoundError("No se encontro el paciente con id de usuario: " + idUsuario);
+    const filtros = {
+      estados: [EstadoTurnoEnum.CONFIRMADO, EstadoTurnoEnum.RESERVADO, EstadoTurnoEnum.PENDIENTECAMBIO],
+      fechaHoraInicio: new Date(),
+      pacienteId: paciente.id,
+      ordenPorFecha: 'asc'
+    }
+    const turnos = await this.turnoRepository.obtener(filtros);
+    logger.info("[TURNOS SERVICE]: Turnos proximos de usuario obtenidos: " + turnos.length);
+    return turnos.map((t) => this.toDto(t));
+  }
+
+  async obtenerTurnosDeUsuario(filtros, numeroPagina = 1, limitePorPagina = Number(process.env.ITEMS_PER_PAGE) || 10) {
+    logger.info(`[TURNO SERVICE]: Obteniendo turnos de usuario (Pág: ${numeroPagina})`);
+
+    this.validarPaginacion(numeroPagina, limitePorPagina);
+    const filtrosValidados = this.validarFiltros(filtros);
+
+    // Acá los filtros ya deberían venir validados con `pacienteId` o `medicoId`
+    // No calculamos la obra social en tiempo de ejecución porque se supone
+    // que estos turnos (RESERVADO, CONFIRMADO, FINALIZADO) ya tienen un costo/asociación guardada
+
+    const { turnos, totalTurnos } = await this.turnoRepository.obtenerPaginados(
+      numeroPagina,
+      limitePorPagina,
+      filtrosValidados,
+    );
+
+    const totalPaginas =
+      totalTurnos === 0 ? 0 : Math.ceil(totalTurnos / limitePorPagina);
+
+    const turnosDTo = turnos.map((t) => this.toDto(t));
+
+    logger.info(
+      `[TURNO SERVICE]: Retornando ${turnosDTo.length} turnos de usuario`,
+    );
+    return {
+      turnos: turnosDTo,
+      numeroPagina,
+      limitePorPagina,
+      totalPaginas,
+      totalTurnos,
+    };
+  }
+
+  async obtenerHistorialDeUsuario(idUsuario, numeroPagina = 1, limitePorPagina = Number(process.env.ITEMS_PER_PAGE) || 10) {
+    logger.info(`[TURNO SERVICE]: Obteniendo turnos de usuario (Pág: ${numeroPagina})`);
+    const paciente = await this.pacienteRepository.findByIdUsuario(idUsuario);
+    if(!paciente) throw new NotFoundError("No se encontro el paciente con id de usuario: " + idUsuario);
+
+    this.validarPaginacion(numeroPagina, limitePorPagina);
+    //const filtrosValidados = this.validarFiltros(filtros);
+    const filtros = {
+      estados: [EstadoTurnoEnum.REALIZADO, EstadoTurnoEnum.CANCELADO],
+      pacienteId: paciente.id,
+      ordenPorFecha: 'asc'
+    }
+
+    // Acá los filtros ya deberían venir validados con `pacienteId` o `medicoId`
+    // No calculamos la obra social en tiempo de ejecución porque se supone
+    // que estos turnos (RESERVADO, CONFIRMADO, REALIZADO) ya tienen un costo/asociación guardada
+
+    const { turnos, totalTurnos } = await this.turnoRepository.obtenerPaginados(
+      numeroPagina,
+      limitePorPagina,
+      filtros,
+    );
+
+    const totalPaginas =
+      totalTurnos === 0 ? 0 : Math.ceil(totalTurnos / limitePorPagina);
+
+    const turnosDTo = turnos.map((t) => this.toDto(t));
+
+    logger.info(
+      `[TURNO SERVICE]: Retornando ${turnosDTo.length} turnos de usuario`,
+    );
+    return {
+      turnos: turnosDTo,
+      numeroPagina,
+      limitePorPagina,
+      totalPaginas,
+      totalTurnos,
+    };
+  }
+
+  async findById(id) {
+    logger.info(`[TURNO SERVICE]: Buscando turno ${id}`);
+    const turno = await this.turnoRepository.findById(id);
+    if (!turno) {
+      throw new NotFoundError("No se encontro el turno con el id " + id);
+    }
+    logger.info(`[TURNO SERVICE]: Turno ${id} encontrado`);
+    return this.toDto(turno);
+  }
+
+  async findByEstado(estado) {
+    logger.info(`[TURNO SERVICE]: Buscando turnos por estado ${estado}`);
+
+    const turnos = await this.turnoRepository.findByEstado(estado);
+
+    if (turnos.length === 0) {
+      return [];
+    }
+
+    logger.info(`[TURNO SERVICE]: Se encontraron ${turnos.length} turnos con estado ${estado}`);
+
+    return turnos.map((t) => this.toDto(t));
+  }
+
+  async update(idTurno, turno) {
+    logger.info(`[TURNO SERVICE]: Actualizando turno ${idTurno}`);
+    const turnoActualizado = await this.turnoRepository.update(idTurno, turno);
+
+    if (!turnoActualizado) {
+      throw new NotFoundError("No se encontro el turno con el id " + idTurno);
+    }
+
+    logger.info(`[TURNO SERVICE]: Turno ${idTurno} actualizado con éxito`);
+
+    return this.toDto(turnoActualizado);
+  }
+
+  async solicitarCambioFecha(idTurno, nuevaFechaHora, usuarioId) {
+    logger.info(`[TURNO SERVICE]: Usuario ${usuarioId} solicita cambio de fecha para turno ${idTurno}`);
+    const turno = await this.turnoRepository.findById(idTurno);
+    if (!turno) {
+      throw new NotFoundError("No se encontro el turno con el id " + idTurno);
+    }
+
+    let quien;
+    let receptor;
+    let rol;
+    if (turno.paciente && (turno.paciente.toString() === usuarioId || turno.paciente.id === usuarioId)) {
+      quien = await this.pacienteRepository.findById(usuarioId);
+      receptor = await this.medicoRepository.findById(turno.medico);
+      rol = "paciente";
+    } 
+    else if (turno.medico && (turno.medico.toString() === usuarioId || turno.medico.id === usuarioId)) {
+      quien = await this.medicoRepository.findById(usuarioId);
+      receptor = await this.pacienteRepository.findById(turno.paciente);
+      rol = "médico";
+    } 
+    else {
+      throw new BadRequestError("El turno no pertenece a este usuario");
+    }
+
+    try {
+      turno.fechaHoraPropuesta = nuevaFechaHora;
+      turno.actualizarEstadoTurno({nuevoEstado: EstadoTurnoEnum.PENDIENTECAMBIO, quien: quien._id, turno, motivo: `El ${rol} propone cambio de fecha a ${nuevaFechaHora}`});
+    } catch (error) {
+      throw new BadRequestError(error.message);
+    }
+
+    this.notificacionService.crearNotificacionSegunEstadoTurno(turno, quien, receptor);
+
+    const turnoActualizado = await this.turnoRepository.update(idTurno, turno);
+    logger.info(`[TURNO SERVICE]: Cambio de fecha solicitado. Turno ${idTurno} actualizado`);
+    return this.toDto(turnoActualizado);
+  }
+
+  async responderCambioFecha(idTurno, aceptado, usuarioId) {
+    logger.info(`[TURNO SERVICE]: Usuario ${usuarioId} responde (Aceptado: ${aceptado}) al cambio de fecha del turno ${idTurno}`);
+    const turno = await this.turnoRepository.findById(idTurno);
+    if (!turno) {
+      throw new NotFoundError("No se encontro el turno con el id " + idTurno);
+    }
+
+    if (turno.estado !== EstadoTurnoEnum.PENDIENTECAMBIO) {
+      throw new BadRequestError("El turno no está pendiente de cambio");
+    }
+
+    let quien;
+    let receptor;
+    let rol;
+    if (turno.paciente && (turno.paciente.toString() === usuarioId || turno.paciente.id === usuarioId)) {
+      quien = await this.pacienteRepository.findById(usuarioId);
+      receptor = await this.medicoRepository.findById(turno.medico);
+      rol = "paciente";
+    } else if (turno.medico && (turno.medico.toString() === usuarioId || turno.medico.id === usuarioId)) {
+      quien = await this.medicoRepository.findById(usuarioId);
+      receptor = await this.pacienteRepository.findById(turno.paciente);
+      rol = "médico";
+    } else {
+      throw new BadRequestError("El turno no pertenece a este usuario");
+    }
+
+    try {
+      if (aceptado) {
+        turno.fechaHora = turno.fechaHoraPropuesta;
+        turno.fechaHoraPropuesta = undefined;
+        turno.actualizarEstadoTurno({
+          nuevoEstado: EstadoTurnoEnum.CONFIRMADO,
+          quien: quien._id,
+          turno,
+          motivo: `El ${rol} aceptó la propuesta de cambio de fecha`,
+        });
+        this.notificacionService.crearNotificacionSegunEstadoTurno(turno, quien, receptor);
+      } else {
+        turno.fechaHoraPropuesta = undefined;
+        turno.actualizarEstadoTurno({
+          nuevoEstado: EstadoTurnoEnum.RESERVADO,
+          quien: quien._id,
+          turno,
+          motivo: `El ${rol} rechazó el cambio de fecha. Se conserva la original.`,
+        });
+        this.notificacionService.crearNotificacionSegunEstadoTurno(turno, quien, receptor);
+      }
+    } catch (error) {
+      throw new BadRequestError(error.message);
+    }
+
+    const turnoActualizado = await this.turnoRepository.update(idTurno, turno);
+    logger.info(`[TURNO SERVICE]: Respuesta a cambio de fecha procesada. Turno ${idTurno} actualizado`);
+    return this.toDto(turnoActualizado);
+  }
+
+  async generarNotificacionesDeTurnosProximos() {
+    logger.info("[TURNO SERVICE]: Generando notificaciones para turnos próximos");
+    const turnosProximos = await this.turnoRepository.find({ date: { $e: new Date(Date.now()).getDay() + 1 }, estado: EstadoTurnoEnum.CONFIRMADO }); //turnos confirmados de mañana
+    logger.info(`[TURNO SERVICE]: Se encontraron ${turnosProximos.length} turnos próximos para notificar`);
+    for (const turno of turnosProximos) {
+      await this.notificacionService.crearNotificacionSegunFechaTurno(turno, turno.medico);
+      await this.notificacionService.crearNotificacionSegunFechaTurno(turno, turno.paciente);
+    }
+    logger.info("[TURNO SERVICE]: Se ha notificado a los usuarios de los turnos próximos");
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*                            FUNCIONES AUXILIARES                              */
+  /* -------------------------------------------------------------------------- */
+
+  calcularCostoTurno(obraSocial, plan, precioBase, servicio) {
+    if (!obraSocial || !plan) {
+      return precioBase; // Si no hay obra social ni plan, el paciente paga el 100%
+    }
+
+    const { nivel, porcentaje } = plan.obtenerCoberturaServicio(servicio); // si el servicio no existe en las cobertura se devuelve nivel: "NO_CUBIERTA" y porcentaje: 0
+
+    switch (nivel) {
+      case NivelCobertura.TOTAL:
+        return { costoFinal: 0, estadoCobertura: "TOTAL" };
+      case NivelCobertura.PARCIAL:
+        return {
+          costoFinal: precioBase * porcentaje,
+          estadoCobertura: "PARCIAL",
+        };
+      case NivelCobertura.NO_CUBIERTA:
+        return { costoFinal: precioBase, estadoCobertura: "NO_CUBIERTA" };
+      default:
+        return { costoFinal: precioBase, estadoCobertura: "NO_CUBIERTA" };
+    }
+  }
+
+  async obtenerObraSocialYPlanPorPaciente(pacienteId) {
+    const paciente = await this.pacienteRepository.findById(pacienteId);
+
+    if (!paciente.obraSocial) {
+      return { obraSocial: null, plan: null };
+    }
+
+    const obraSocial = await this.obraSocialRepository.findById(paciente.obraSocial);
+    if (!obraSocial) {
+      throw new NotFoundError("No se encontro la obra social con el id " + paciente.obraSocial);
+    }
+    const plan = obraSocial.obtenerPlanPorId(paciente.plan);
+
+    return {
+      obraSocial,
+      plan,
+    };
+  }
+
+  validarFiltros(filtrosRecibidos) {
+    const validacion = filtrosTurnoSchema.safeParse(filtrosRecibidos); //Analiza y devuelve un objeto con success y data entonces lo que hacemos es usar ese obkjecto para manejar el estado de la respuesta de success
+    if (!validacion.success) {
+      const mensajesError = validacion.error.issues
+        .map((issue) => issue.message)
+        .join(", ");
+      throw new BadRequestError(`Filtros inválidos: ${mensajesError}`);
+    }
+    return validacion.data;
+  }
+
+  validarPaginacion(numeroPagina, limitePorPagina) {
+    this.validarEnteroPositivo(numeroPagina, "Numero de página");
+    this.validarEnteroPositivo(limitePorPagina, "Límite por página");
+  }
+
+  validarEnteroPositivo(numero, parametro) {
+    if (!Number.isInteger(numero) || numero <= 0) {
+      throw new BadRequestError(`${parametro} debe ser un entero positivo`);
+    }
+  }
+  /* -------------------------------------------------------------------------- */
+  /*                            CREACION DE TURNOS                              */
+  /* -------------------------------------------------------------------------- */
+
+  async generarTurnosDisponibles() {
+    logger.info("Iniciando generación de turnos disponibles");
+
+    const medicos = await this.medicoService.findAll();
+
+    for (const medico of medicos) {
+      await this.generarTurnosDisponiblesParaMedico(medico);
+    }
+
+    logger.info("Finalizó generación de turnos disponibles");
+  }
+
+  async generarTurnosDisponiblesParaMedico(medico) {
+    const turnosGenerados = this.agenda.generarTurnosSegunDisponibilidadDelMedico(medico);
+
+    for (const turno of turnosGenerados) {
+      const yaExiste = await this.turnoRepository.existeTurno(medico.id, turno.fechaHora);
+
+      if (!yaExiste) {
+        await this.turnoRepository.save(turno);
+      }
+    }
+  }
+
+  async refrescarTurnosDisponiblesDelMedico(medico) {
+    const ahora = new Date();
+
+    await this.turnoRepository.eliminarTurnosDisponiblesFuturosDelMedico(
+      medico.id,
+      ahora
+    );
+
+    await this.generarTurnosDisponiblesParaMedico(medico);
+  }
+
+  async obtenerContadores({ medicoId, pacienteId }) {
+    logger.info(`[TURNO SERVICE]: Obteniendo contadores de turnos`);
+    return await this.turnoRepository.obtenerContadores({ medicoId, pacienteId });
+  }
+}

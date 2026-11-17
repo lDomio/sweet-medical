@@ -1,0 +1,71 @@
+import React from "react";
+import { useState } from "react";
+import EventNoteIcon from "@mui/icons-material/EventNote";
+import AddCircleIcon from "@mui/icons-material/AddCircle";
+import "./tarjetaTurno.css";
+import { useCart } from "../../context/CartContext.jsx";
+import TurnoCardLayout from '../../shared/TurnoCardLayout.jsx';
+
+export default function TarjetaTurno({ turno, especialidades, practicas, onReservar }) {
+  const [turnoSeleccionado, setTurnoSeleccionado] = useState(null);
+  const [turnosReservados, setTurnosReservados] = useState(new Set());
+
+  const {estaEnCarrito } = useCart();
+
+  const formatoHorario = (isoString) => {
+    const fecha = new Date(isoString);
+    
+    return {
+      fecha: fecha.toLocaleDateString("es-AR", {
+        day: "2-digit",
+        month: "short",
+        timeZone: "America/Argentina/Buenos_Aires",
+      }),
+      hora: fecha.toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "America/Argentina/Buenos_Aires",
+      }),
+    };
+  };
+
+  return (
+    <TurnoCardLayout turno={turno} especialidades={especialidades} practicas={practicas}>
+        {/* Grid de Turnos inferiores */}
+        <div className="seccion-inferior-turnos">
+          <p className="titulo-turnos">Próximos turnos disponibles</p>
+          <div className="seccion-turnos">
+            <div className="grid-turnos">
+              {turno.turnos.map((turno, index) => {
+                const { fecha, hora } = formatoHorario(turno.horario);
+                return (
+                  <button
+                    key={turno.id}
+                    className={`boton-turno ${turnoSeleccionado === turno.id ? 'seleccionado' : ''}`}
+                    disabled={estaEnCarrito(turno.id)}
+                    onClick={() => !estaEnCarrito(turno.id) && setTurnoSeleccionado(turno.id)}
+                  >
+                    <EventNoteIcon fontSize="15px" />
+                    <span className="fecha-turno">{fecha}</span>
+                    <span className="hora-turno">{hora}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              className="boton-reservar"
+              disabled={turnoSeleccionado === null}
+              onClick={() => {
+                onReservar(turnoSeleccionado);
+                setTurnosReservados((prev) => new Set(prev).add(turnoSeleccionado));
+                setTurnoSeleccionado(null);
+              }}
+            >
+              <AddCircleIcon fontSize="15px" />
+              Reservar
+            </button>
+          </div>
+        </div>
+    </TurnoCardLayout>
+  );
+}

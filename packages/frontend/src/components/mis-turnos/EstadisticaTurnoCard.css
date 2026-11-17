@@ -1,0 +1,102 @@
+.stat-card {
+    background: var(--color-surface);
+    border: 2px solid var(--color-divider);
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+    min-height: 120px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stat-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stat-icon.azul {
+    background: var(--color-info-light);
+    color: var(--color-info);
+}
+
+.stat-icon.verde {
+    background: var(--color-success-light);
+    color: var(--color-success);
+}
+
+.stat-icon.rojo {
+    background: var(--color-error-light);
+    color: var(--color-error);
+}
+
+.stat-icon.naranja {
+    background: var(--color-warning-light);
+    color: var(--color-warning-dark);
+}
+
+.stat-top p {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 17px;
+    padding-bottom: 15px;
+    font-weight: 600;
+}
+
+.stat-numero {
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1;
+    padding-left: 2px;
+    z-index: 1;
+}
+
+.stat-numero.azul {
+    color: var(--color-info);
+}
+
+.stat-numero.verde {
+    color: var(--color-success);
+}
+
+.stat-numero.rojo {
+    color: var(--color-error);
+}
+
+.stat-numero.naranja {
+    color: var(--color-warning-dark);
+}
+
+.turno-card,
+.turno-card-historial,
+.stat-card,
+.mis-turnos-header {
+    animation: slideFadeIn 0.25s ease-out;
+}
+
+@keyframes slideFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

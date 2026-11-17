@@ -1,0 +1,248 @@
+import { NotificacionService } from "../services/NotificacionService.js";
+import { notificacionIdParamsSchema } from "../schemas/zod/notificacionSchema.js";
+import { usuarioIdSchema } from "../schemas/zod/usuarioSchema.js";
+import { BadRequestError } from "../errors/AppError.js";
+import { logger } from "../config/logger.js";
+
+export class NotificacionController {
+    constructor({
+        notificacionService = new NotificacionService()
+    } = {}) {
+        this.notificacionService = notificacionService;
+    }
+
+    getNotificaciones = async (req, res, next) => {
+        try {
+            const idUsuario = req.user.id;
+            const leido = req.query.leido === "true"; // filtro por leido/no leido
+            const { numeroPagina, limitePorPagina } = this.extraerPaginacion(req.query);
+            
+            logger.info(`[NOTIFICACIONES CONTROLLER]: Obteniendo notificaciones de user: ${idUsuario}, leido: ${leido}, pag: ${numeroPagina}`);
+            const resultado = await this.notificacionService.getLeidosNoLeidosPaginado(
+                idUsuario, 
+                leido, 
+                numeroPagina, 
+                limitePorPagina
+            );
+            
+            res.status(200).json({
+                status: "success",
+                ...resultado
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    getContadores = async (req, res, next) => {
+        try {
+            const idUsuario = req.user.id;
+            logger.info(`[NOTIFICACIONES CONTROLLER]: Obteniendo contadores de user: ${idUsuario}`);
+            const contadores = await this.notificacionService.getContadores(idUsuario);
+            res.status(200).json({
+                status: "success",
+                data: contadores
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    //este endpoint en la siguiente entrega vuela (es por logica del sistema que se crean)
+    //    crearNotificacion = async (req, res, next) => {
+    //        try {
+    //            const notificacionData = notificacionSchema.parse(req.body);
+    //            logger.info("[NOTIFICACIONES CONTROLLER]: Creando notificacion: ", notificacionData);
+    //            const notificacion = await this.notificacionService.crearNotificacion(notificacionData);
+    //            logger.info("[NOTIFICACIONES CONTROLLER]: Notificacion creada: ", notificacion);
+    //            res.status(201).json({
+    //                status: "success",
+    //                data: notificacion
+    //            });
+    //        } catch (error) {
+    //            next(error);
+    //        }
+    //    };
+
+    getLeidas = async (req, res, next) => {
+        try {
+            const { idUsuario } = usuarioIdSchema.parse(req.params);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Obteniendo notificaciones leidas del usuario:", idUsuario);
+            const notificaciones = await this.notificacionService.getLeidosNoLeidos(idUsuario, true);
+            res.status(200).json({
+                status: "success",
+                data: notificaciones
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    getLeidasPaginadas = async (req, res, next) => {
+        try {
+            const { idUsuario } = usuarioIdSchema.parse(req.params);
+            const paginacion = this.extraerPaginacion(req.query);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Obteniendo notificaciones leidas del usuario:", idUsuario);
+            const notificaciones = await this.notificacionService.getLeidosNoLeidosPaginado(idUsuario, true, paginacion.numeroPagina, paginacion.limitePorPagina);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Notificaciones leidas obtenidas:", notificaciones);
+            res.status(200).json({
+                status: "success",
+                ...notificaciones
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    getNoLeidas = async (req, res, next) => {
+        try {
+            const { idUsuario } = usuarioIdSchema.parse(req.params);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Obteniendo notificaciones no leidas del usuario: ", idUsuario);
+            const notificaciones = await this.notificacionService.getLeidosNoLeidos(idUsuario, false);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Notificaciones no leidas obtenidas: ", notificaciones);
+            res.status(200).json({
+                status: "success",
+                data: notificaciones
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    getNoLeidasPaginadas = async (req, res, next) => {
+        try {
+            const { idUsuario } = usuarioIdSchema.parse(req.params);
+            const paginacion = this.extraerPaginacion(req.query);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Obteniendo notificaciones no leidas del usuario:", idUsuario);
+            const notificaciones = await this.notificacionService.getLeidosNoLeidosPaginado(idUsuario, false, paginacion.numeroPagina, paginacion.limitePorPagina);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Notificaciones no leidas obtenidas:", notificaciones);
+            res.status(200).json({
+                status: "success",
+                ...notificaciones
+            });
+
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    leer = async (req, res, next) => {
+        try {
+            const { idNotificacion } = notificacionIdParamsSchema.parse(req.params);
+            const idUsuarioAutenticado = req.user?.id;
+            logger.info("[NOTIFICACIONES CONTROLLER]: Leyendo notificacion: ", idNotificacion);
+            const notificacion = await this.notificacionService.leer(idNotificacion, idUsuarioAutenticado);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Notificacion leida: ", notificacion);
+            res.status(200).json({
+                status: "success",
+                data: notificacion,
+                message: "Notificación leída exitosamente."
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    desleer = async (req, res, next) => {
+        try {
+            const { idNotificacion } = notificacionIdParamsSchema.parse(req.params);
+            const idUsuarioAutenticado = req.user?.id;
+            logger.info("[NOTIFICACIONES CONTROLLER]: Marcando notificacion como no leida: ", idNotificacion);
+            const notificacion = await this.notificacionService.desleer(idNotificacion, idUsuarioAutenticado);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Notificacion marcada como no leida: ", notificacion);
+            res.status(200).json({
+                status: "success",
+                data: notificacion,
+                message: "Notificación marcada como no leída exitosamente."
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    marcarTodasComoLeidas = async (req, res, next) => {
+        try {
+            const idUsuario = req.user.id;
+            logger.info("[NOTIFICACIONES CONTROLLER]: Marcando todas las notificaciones como leídas para el usuario: ", idUsuario);
+            await this.notificacionService.marcarTodasComoLeidas(idUsuario);
+            res.status(200).json({
+                status: "success",
+                message: "Todas las notificaciones fueron marcadas como leídas exitosamente."
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /*getNotificacionesPaginadas = async (req, res, next) => {
+        try {
+            const paginacion = this.extraerPaginacion(req.query);
+            const filtros = this.extraerFiltros(req.query);
+
+            logger.info("[NOTIFICACIONES CONTROLLER]: Obteniendo notificaciones paginadas");
+            const resultado = await this.notificacionesService.obtenerPaginadas(numeroPagina, limitePorPagina, filtros);
+            logger.info("[NOTIFICACIONES CONTROLLER]: Notificaciones obtenidas");
+
+            res.status(200).json({
+                status: "success",
+                data: resultado
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+    
+    extraerFiltros(query) {
+        const filtros = {}
+
+        if (query.destinatarioId !== undefined) {
+            filtros.destinatarioId = query.destinatarioId;
+        }
+        if (query.remitenteId !== undefined) {
+            filtros.remitenteId = query.remitenteId;
+        }
+        if (query.leida !== undefined) {
+            filtros.leida = query.leida === true;
+        }
+
+        return filtros
+    }*/
+
+    extraerPaginacion(query) {
+        logger.info("[NOTIFICACIONES CONTROLLER]: Extrayendo paginacion");
+        const numeroPagina = query?.page === undefined ? 1 : Number(query.page);
+        const limitePorPagina = query?.limit === undefined ? 10 : Number(query.limit);
+        if (numeroPagina <= 0 || limitePorPagina <= 0) throw new BadRequestError("Paginacion invalida");
+        logger.info("[NOTIFICACIONES CONTROLLER]: Paginacion extraida");
+        return { numeroPagina, limitePorPagina };
+    }
+
+    async seed(usuarios) {
+        const notificaciones = [
+            {
+                destinatario: usuarios[1].id,
+                remitente: usuarios[0].id,
+                mensaje: "Se ha generado un turno."
+            },
+            {
+                destinatario: usuarios[1].id,
+                remitente: usuarios[0].id,
+                mensaje: "Se ha reservado un turno."
+            },
+            {
+                destinatario: usuarios[1].id,
+                remitente: usuarios[0].id,
+                mensaje: "Se ha cancelado un turno."
+            },
+            {
+                destinatario: usuarios[1].id,
+                remitente: usuarios[0].id,
+                mensaje: "Se ha realizado un turno."
+            }
+        ];
+
+        //await this.notificacionService.setUsuarioSistema(usuarios[0].id); //configuro el usuario sistema para el factory de notificaciones
+
+        return await notificaciones.map(n => this.notificacionService.crearNotificacion(n));
+    }
+}
